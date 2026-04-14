@@ -707,10 +707,41 @@ export class CanvasRenderer extends Renderer {
             paint.curves
         );
 
+        // For inline elements that wrap across multiple lines, pre-compute a BoundCurves
+        // instance for each individual line-box rect.  This is shared by both the background
+        // clip and the border rendering so that border-radius is applied consistently.
+        const inlineRects = paint.container.inlineClientRects;
+        let inlineCurvesArr: BoundCurves[] | null = null;
+        if (inlineRects && inlineRects.length > 0) {
+            const originalBounds = paint.container.bounds;
+            inlineCurvesArr = inlineRects.map((rect) => {
+                paint.container.bounds = rect;
+                return new BoundCurves(paint.container);
+            });
+            paint.container.bounds = originalBounds;
+        }
+
         if (hasBackground || styles.boxShadow.length) {
             this.ctx.save();
-            this.path(backgroundPaintingArea);
-            this.ctx.clip();
+
+            if (inlineCurvesArr) {
+                // Build a composite clip path from all line-box painting areas so that
+                // border-radius is respected for each line box.  Each call to formatPath()
+                // appends a sub-path; the final clip() applies to all of them at once.
+                this.ctx.beginPath();
+                for (const rectCurves of inlineCurvesArr) {
+                    const area = calculateBackgroundCurvedPaintingArea(
+                        getBackgroundValueForIndex(styles.backgroundClip, 0),
+                        rectCurves
+                    );
+                    this.formatPath(area);
+                    this.ctx.closePath();
+                }
+                this.ctx.clip();
+            } else {
+                this.path(backgroundPaintingArea);
+                this.ctx.clip();
+            }
 
             if (!isTransparent(styles.backgroundColor)) {
                 this.ctx.fillStyle = asString(styles.backgroundColor);
@@ -757,32 +788,61 @@ export class CanvasRenderer extends Renderer {
                 });
         }
 
-        let side = 0;
-        for (const border of borders) {
-            if (border.style !== BORDER_STYLE.NONE && !isTransparent(border.color) && border.width > 0) {
-                if (border.style === BORDER_STYLE.DASHED) {
-                    await this.renderDashedDottedBorder(
-                        border.color,
-                        border.width,
-                        side,
-                        paint.curves,
-                        BORDER_STYLE.DASHED
-                    );
-                } else if (border.style === BORDER_STYLE.DOTTED) {
-                    await this.renderDashedDottedBorder(
-                        border.color,
-                        border.width,
-                        side,
-                        paint.curves,
-                        BORDER_STYLE.DOTTED
-                    );
-                } else if (border.style === BORDER_STYLE.DOUBLE) {
-                    await this.renderDoubleBorder(border.color, border.width, side, paint.curves);
-                } else {
-                    await this.renderSolidBorder(border.color, side, paint.curves);
+        if (inlineCurvesArr) {
+            // Render borders per line box.  Per CSS spec for inline elements:
+            //   side 0 = top    → every line box
+            //   side 1 = right  → last line box only
+            //   side 2 = bottom → every line box
+            //   side 3 = left   → first line box only
+            const lastIdx = inlineCurvesArr.length - 1;
+            for (let i = 0; i <= lastIdx; i++) {
+                const rectCurves = inlineCurvesArr[i];
+                let side = 0;
+                for (const border of borders) {
+                    const skipLeft = side === 3 && i !== 0;
+                    const skipRight = side === 1 && i !== lastIdx;
+                    if (!skipLeft && !skipRight && border.style !== BORDER_STYLE.NONE && !isTransparent(border.color) && border.width > 0) {
+                        if (border.style === BORDER_STYLE.DASHED) {
+                            await this.renderDashedDottedBorder(border.color, border.width, side, rectCurves, BORDER_STYLE.DASHED);
+                        } else if (border.style === BORDER_STYLE.DOTTED) {
+                            await this.renderDashedDottedBorder(border.color, border.width, side, rectCurves, BORDER_STYLE.DOTTED);
+                        } else if (border.style === BORDER_STYLE.DOUBLE) {
+                            await this.renderDoubleBorder(border.color, border.width, side, rectCurves);
+                        } else {
+                            await this.renderSolidBorder(border.color, side, rectCurves);
+                        }
+                    }
+                    side++;
                 }
             }
-            side++;
+        } else {
+            let side = 0;
+            for (const border of borders) {
+                if (border.style !== BORDER_STYLE.NONE && !isTransparent(border.color) && border.width > 0) {
+                    if (border.style === BORDER_STYLE.DASHED) {
+                        await this.renderDashedDottedBorder(
+                            border.color,
+                            border.width,
+                            side,
+                            paint.curves,
+                            BORDER_STYLE.DASHED
+                        );
+                    } else if (border.style === BORDER_STYLE.DOTTED) {
+                        await this.renderDashedDottedBorder(
+                            border.color,
+                            border.width,
+                            side,
+                            paint.curves,
+                            BORDER_STYLE.DOTTED
+                        );
+                    } else if (border.style === BORDER_STYLE.DOUBLE) {
+                        await this.renderDoubleBorder(border.color, border.width, side, paint.curves);
+                    } else {
+                        await this.renderSolidBorder(border.color, side, paint.curves);
+                    }
+                }
+                side++;
+            }
         }
     }
 

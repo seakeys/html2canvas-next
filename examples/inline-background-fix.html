@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title>Inline Background Fix Test</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            max-width: 700px;
+        }
+
+        h2 { margin-top: 32px; }
+
+        .box {
+            width: 420px;
+            line-height: 2;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+
+        /* 测试用例 1：多行 inline 背景色 */
+        .case1 span {
+            background: #ffe066;
+        }
+
+        /* 测试用例 2：多行 inline 背景图（线性渐变） */
+        .case2 span {
+            background: linear-gradient(90deg, #f9a, #af9);
+        }
+
+        /* 测试用例 3：单行 inline（应不受影响） */
+        .case3 span {
+            background: #66ccff;
+        }
+
+        /* 测试用例 4：多行 inline + 背景色 + 边框 */
+        .case4 span {
+            background: #d0f0ff;
+            border: 2px solid #0077cc;
+        }
+
+        /* 测试用例 5：多行 inline + 背景色 + 虚线边框 */
+        .case5 span {
+            background: #fff0d0;
+            border: 2px dashed #cc7700;
+        }
+
+        /* 对比：inline-block（应不受影响） */
+        .case6 span {
+            display: inline-block;
+            background: #ffaa66;
+            border: 2px solid #cc4400;
+        }
+
+        /* 测试用例 7：多行 inline + 背景色 + border-radius（圆角应只出现在首行左侧和末行右侧） */
+        .case7 span {
+            background: #e8d5ff;
+            border: 2px solid #7c3aed;
+            border-radius: 3px;
+        }
+
+        /* 测试用例 8：单行 inline + border-radius（对照组，应与浏览器原生一致） */
+        .case8 span {
+            background: #d5f5e3;
+            border: 2px solid #1a7a4a;
+            border-radius: 3px;
+        }
+
+        .label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        #source { margin-bottom: 24px; }
+        #output canvas { border: 2px solid #333; display: block; margin-top: 8px; }
+
+        button {
+            padding: 10px 28px;
+            font-size: 15px;
+            cursor: pointer;
+            background: #333;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+        }
+
+        .desc {
+            font-size: 13px;
+            color: #555;
+            margin: 4px 0 12px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Inline Background Fix — 验证页</h1>
+<p class="desc">
+    点击 "Run html2canvas" 后，下方 Canvas 输出应与上方 HTML 原始渲染<strong>一致</strong>：<br>
+    背景色/背景图应只覆盖每行文字，而<strong>不是</strong>跨行的整个大矩形。
+</p>
+
+<div id="source">
+
+    <div class="label">① 多行 inline — 背景色（黄色应只覆盖文字行，中间空白处不应有色块）</div>
+    <div class="box case1">
+        <span>这是一段带有背景色的 inline 文本，它足够长，会在容器中自动换行，从而跨越两行或更多行。修复前背景色会填满整个外接矩形，修复后只覆盖每行文字。</span>
+    </div>
+
+    <div class="label">② 多行 inline — 背景渐变（渐变应随每行重复/裁剪，不是一整块）</div>
+    <div class="box case2">
+        <span>这是一段带有渐变背景的 inline 文本，同样需要换行才能触发 bug。渐变背景在换行时应该和浏览器原生渲染一致，而不是覆盖整个外接矩形区域。</span>
+    </div>
+
+    <div class="label">③ 单行 inline — 背景色（对照组，行为不应改变）</div>
+    <div class="box case3">
+        <span>单行文字，背景色正常。</span>
+    </div>
+
+    <div class="label">④ 多行 inline — 背景色 + 实线边框（左边框只在首行，右边框只在末行，上下边框每行都有）</div>
+    <div class="box case4">
+        <span>这是一段带有背景色和边框的 inline 文本，它会在容器中换行。修复前边框是整个外接矩形的边框，修复后边框应沿每个行框绘制：上下边框每行都有，左边框只在第一行，右边框只在最后一行。</span>
+    </div>
+
+    <div class="label">⑤ 多行 inline — 背景色 + 虚线边框</div>
+    <div class="box case5">
+        <span>这是一段带有背景色和虚线边框的 inline 文本，同样需要换行才能触发。虚线边框也应该按行框分别渲染，而不是整个外接矩形。</span>
+    </div>
+
+    <div class="label">⑥ inline-block — 背景色 + 边框（对照组，行为不应改变）</div>
+    <div class="box case6">
+        <span>inline-block 元素背景和边框，不受本次修复影响。</span>
+    </div>
+
+    <div class="label">⑦ 多行 inline — 背景色 + border-radius（圆角：首行左侧两角、末行右侧两角；中间行无圆角）</div>
+    <div class="box case7">
+        <span>这是一段带有背景色、边框和圆角的 inline 文本，它会在容器中换行。按 CSS 规范，圆角只应出现在元素的起始端（首行左侧）和结束端（末行右侧），中间行框的连接处不应有圆角。</span>
+    </div>
+
+    <div class="label">⑧ 单行 inline — 背景色 + border-radius（对照组，四角均应圆角）</div>
+    <div class="box case8">
+        <span>单行文字加圆角，四角应全部圆角，与浏览器原生一致。</span>
+    </div>
+
+</div>
+
+<button id="btn">Run html2canvas</button>
+
+<div id="output"></div>
+
+<script src="../dist/html2canvas.js"></script>
+<script>
+    document.getElementById('btn').addEventListener('click', function () {
+        var source = document.getElementById('source');
+        html2canvas(source, {scale: window.devicePixelRatio || 1}).then(function (canvas) {
+            var output = document.getElementById('output');
+            output.innerHTML = '<h2>html2canvas 输出：</h2>';
+            output.appendChild(canvas);
+        });
+    });
+</script>
+</body>
+</html>

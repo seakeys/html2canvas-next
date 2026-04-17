@@ -44,6 +44,9 @@ import {PAINT_ORDER_LAYER} from '../../css/property-descriptors/paint-order';
 import {Renderer} from '../renderer';
 import {Context} from '../../core/context';
 import {DIRECTION} from '../../css/property-descriptors/direction';
+import {TEXT_OVERFLOW} from '../../css/property-descriptors/text-overflow';
+import {OVERFLOW} from '../../css/property-descriptors/overflow';
+import {filterValidBounds, groupBoundsIntoLines} from './text-overflow-utils';
 
 export type RenderConfigurations = RenderOptions & {
     backgroundColor: Color | null;
@@ -173,6 +176,243 @@ export class CanvasRenderer extends Renderer {
         ];
     }
 
+    // Renders a single TextBounds with full paint-order / shadow / decoration / stroke styling.
+    // Requires that the canvas context font, direction, textAlign, and textBaseline are already set.
+    private renderTextBoundWithStyles(
+        textBound: TextBounds,
+        styles: CSSParsedDeclaration,
+        baseline: number,
+        middle: number
+    ): void {
+        styles.paintOrder.forEach((paintOrderLayer) => {
+            switch (paintOrderLayer) {
+                case PAINT_ORDER_LAYER.FILL: {
+                    this.ctx.fillStyle = asString(styles.color);
+                    this.renderTextWithLetterSpacing(textBound, styles.letterSpacing, baseline);
+                    const textShadows: TextShadow = styles.textShadow;
+
+                    if (textShadows.length && textBound.text.trim().length) {
+                        textShadows
+                            .slice(0)
+                            .reverse()
+                            .forEach((textShadow) => {
+                                this.ctx.shadowColor = asString(textShadow.color);
+                                this.ctx.shadowOffsetX = textShadow.offsetX.number * this.options.scale;
+                                this.ctx.shadowOffsetY = textShadow.offsetY.number * this.options.scale;
+                                this.ctx.shadowBlur = textShadow.blur.number;
+
+                                this.renderTextWithLetterSpacing(textBound, styles.letterSpacing, baseline);
+                            });
+
+                        this.ctx.shadowColor = '';
+                        this.ctx.shadowOffsetX = 0;
+                        this.ctx.shadowOffsetY = 0;
+                        this.ctx.shadowBlur = 0;
+                    }
+
+                    if (styles.textDecorationLine.length) {
+                        this.ctx.fillStyle = asString(styles.textDecorationColor || styles.color);
+                        styles.textDecorationLine.forEach((textDecorationLine) => {
+                            switch (textDecorationLine) {
+                                case TEXT_DECORATION_LINE.UNDERLINE:
+                                    // Draws a line at the baseline of the font
+                                    // TODO As some browsers display the line as more than 1px if the font-size is big,
+                                    // need to take that into account both in position and size
+                                    this.ctx.fillRect(
+                                        textBound.bounds.left,
+                                        Math.round(textBound.bounds.top + baseline),
+                                        textBound.bounds.width,
+                                        1
+                                    );
+                                    break;
+                                case TEXT_DECORATION_LINE.OVERLINE:
+                                    this.ctx.fillRect(
+                                        textBound.bounds.left,
+                                        Math.round(textBound.bounds.top),
+                                        textBound.bounds.width,
+                                        1
+                                    );
+                                    break;
+                                case TEXT_DECORATION_LINE.LINE_THROUGH:
+                                    // TODO try and find exact position for line-through
+                                    this.ctx.fillRect(
+                                        textBound.bounds.left,
+                                        Math.ceil(textBound.bounds.top + middle),
+                                        textBound.bounds.width,
+                                        1
+                                    );
+                                    break;
+                            }
+                        });
+                    }
+                    break;
+                }
+                case PAINT_ORDER_LAYER.STROKE: {
+                    if (styles.webkitTextStrokeWidth && textBound.text.trim().length) {
+                        this.ctx.strokeStyle = asString(styles.webkitTextStrokeColor);
+                        this.ctx.lineWidth = styles.webkitTextStrokeWidth;
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        this.ctx.lineJoin = !!(window as any).chrome ? 'miter' : 'round';
+                        this.ctx.strokeText(textBound.text, textBound.bounds.left, textBound.bounds.top + baseline);
+                    }
+                    this.ctx.strokeStyle = '';
+                    this.ctx.lineWidth = 0;
+                    this.ctx.lineJoin = 'miter';
+                    break;
+                }
+            }
+        });
+    }
+
+    // Measures text width accounting for letterSpacing (which Canvas does not apply natively).
+    private measureTextWidth(text: string, letterSpacing: number): number {
+        if (letterSpacing === 0) {
+            return this.ctx.measureText(text).width;
+        }
+        return segmentGraphemes(text).reduce((width, char) => {
+            return width + this.ctx.measureText(char).width + letterSpacing;
+        }, 0);
+    }
+
+    // Returns the longest prefix of `text` whose rendered width fits within `maxWidth`.
+    private truncateTextToWidth(text: string, maxWidth: number, letterSpacing: number): string {
+        if (this.measureTextWidth(text, letterSpacing) <= maxWidth) {
+            return text;
+        }
+        const chars = segmentGraphemes(text);
+        let width = 0;
+        let result = '';
+        for (const char of chars) {
+            const charWidth = this.ctx.measureText(char).width + letterSpacing;
+            if (width + charWidth > maxWidth) {
+                break;
+            }
+            width += charWidth;
+            result += char;
+        }
+        return result;
+    }
+
+    // Renders all text nodes of a container with text-overflow:ellipsis or -webkit-line-clamp support.
+    private async renderTextNodesWithEllipsis(
+        container: ElementContainer,
+        styles: CSSParsedDeclaration
+    ): Promise<void> {
+        const [font, fontFamily, fontSize] = this.createFontStyle(styles);
+        this.ctx.font = font;
+        this.ctx.direction = styles.direction === DIRECTION.RTL ? 'rtl' : 'ltr';
+        this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'alphabetic';
+        const {baseline, middle} = this.fontMetrics.getMetrics(fontFamily, fontSize);
+
+        const ELLIPSIS = '\u2026';
+        const ellipsisWidth = this.measureTextWidth(ELLIPSIS, styles.letterSpacing);
+        const box = contentBox(container);
+        const contentRight = box.left + box.width;
+
+        // Collect every TextBounds from all text nodes in document order, then
+        // filter and group via the shared utilities (see text-overflow-utils.ts).
+        const rawBounds: TextBounds[] = [];
+        for (const textNode of container.textNodes) {
+            for (const bound of textNode.textBounds) {
+                rawBounds.push(bound);
+            }
+        }
+
+        const allBounds = filterValidBounds(rawBounds);
+
+        if (allBounds.length === 0) {
+            return;
+        }
+
+        const lines = groupBoundsIntoLines(allBounds);
+
+        const clampCount = styles.webkitLineClamp;
+        const hasLineClamp = clampCount > 0 && lines.length > clampCount;
+
+        // Determine which line (if any) needs an ellipsis appended
+        let ellipsisLineIndex = -1;
+
+        if (hasLineClamp) {
+            // Multi-line clamp: always place ellipsis at the end of line clampCount
+            ellipsisLineIndex = clampCount - 1;
+        } else if (styles.textOverflow === TEXT_OVERFLOW.ELLIPSIS) {
+            // Single-line (or last-line) overflow: find the first line whose content
+            // exceeds the container's right edge
+            for (let i = 0; i < lines.length; i++) {
+                const lineRight = lines[i].reduce(
+                    (maxR, b) => Math.max(maxR, b.bounds.left + b.bounds.width),
+                    0
+                );
+                if (lineRight > contentRight + 0.5) {
+                    ellipsisLineIndex = i;
+                    break;
+                }
+            }
+        }
+
+        // Number of lines to actually paint
+        const renderLineCount = hasLineClamp ? clampCount : lines.length;
+
+        for (let lineIdx = 0; lineIdx < renderLineCount; lineIdx++) {
+            const line = lines[lineIdx];
+
+            if (lineIdx !== ellipsisLineIndex) {
+                // Normal rendering — no truncation needed on this line
+                for (const bound of line) {
+                    this.renderTextBoundWithStyles(bound, styles, baseline, middle);
+                }
+                continue;
+            }
+
+            // --- Ellipsis line: render as much text as fits, then append "…" ---
+            // Use DOM-layout positions (bound.bounds.left/width) for whole-word fit checks so
+            // that we stay in the same coordinate space as contentRight and avoid accumulating
+            // canvas-measurement drift across words.
+            const lineLeft = line[0].bounds.left;
+            const availableRight = contentRight - ellipsisWidth;
+            let ellipsisX = lineLeft;
+            let truncated = false;
+
+            for (const bound of line) {
+                if (truncated) break;
+
+                const domBoundRight = bound.bounds.left + bound.bounds.width;
+
+                if (domBoundRight <= availableRight) {
+                    // This entire bound fits — render it normally
+                    this.renderTextBoundWithStyles(bound, styles, baseline, middle);
+                    ellipsisX = domBoundRight;
+                } else {
+                    // This bound needs to be cut short; canvas measurements used only here
+                    // to count how many characters fill the remaining pixel budget.
+                    const remaining = availableRight - bound.bounds.left;
+                    if (remaining > 0) {
+                        const truncatedText = this.truncateTextToWidth(bound.text, remaining, styles.letterSpacing);
+                        if (truncatedText.length > 0) {
+                            const truncatedWidth = this.measureTextWidth(truncatedText, styles.letterSpacing);
+                            const truncatedBound = new TextBounds(
+                                truncatedText,
+                                new Bounds(bound.bounds.left, bound.bounds.top, truncatedWidth, bound.bounds.height)
+                            );
+                            this.renderTextBoundWithStyles(truncatedBound, styles, baseline, middle);
+                            ellipsisX = bound.bounds.left + truncatedWidth;
+                        }
+                    }
+                    truncated = true;
+                }
+            }
+
+            // Paint the ellipsis character itself
+            const refBound = line[0];
+            const ellipsisBound = new TextBounds(
+                ELLIPSIS,
+                new Bounds(ellipsisX, refBound.bounds.top, ellipsisWidth, refBound.bounds.height)
+            );
+            this.renderTextBoundWithStyles(ellipsisBound, styles, baseline, middle);
+        }
+    }
+
     async renderTextNode(text: TextContainer, styles: CSSParsedDeclaration): Promise<void> {
         const [font, fontFamily, fontSize] = this.createFontStyle(styles);
 
@@ -182,86 +422,9 @@ export class CanvasRenderer extends Renderer {
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'alphabetic';
         const {baseline, middle} = this.fontMetrics.getMetrics(fontFamily, fontSize);
-        const paintOrder = styles.paintOrder;
 
-        text.textBounds.forEach((text) => {
-            paintOrder.forEach((paintOrderLayer) => {
-                switch (paintOrderLayer) {
-                    case PAINT_ORDER_LAYER.FILL:
-                        this.ctx.fillStyle = asString(styles.color);
-                        this.renderTextWithLetterSpacing(text, styles.letterSpacing, baseline);
-                        const textShadows: TextShadow = styles.textShadow;
-
-                        if (textShadows.length && text.text.trim().length) {
-                            textShadows
-                                .slice(0)
-                                .reverse()
-                                .forEach((textShadow) => {
-                                    this.ctx.shadowColor = asString(textShadow.color);
-                                    this.ctx.shadowOffsetX = textShadow.offsetX.number * this.options.scale;
-                                    this.ctx.shadowOffsetY = textShadow.offsetY.number * this.options.scale;
-                                    this.ctx.shadowBlur = textShadow.blur.number;
-
-                                    this.renderTextWithLetterSpacing(text, styles.letterSpacing, baseline);
-                                });
-
-                            this.ctx.shadowColor = '';
-                            this.ctx.shadowOffsetX = 0;
-                            this.ctx.shadowOffsetY = 0;
-                            this.ctx.shadowBlur = 0;
-                        }
-
-                        if (styles.textDecorationLine.length) {
-                            this.ctx.fillStyle = asString(styles.textDecorationColor || styles.color);
-                            styles.textDecorationLine.forEach((textDecorationLine) => {
-                                switch (textDecorationLine) {
-                                    case TEXT_DECORATION_LINE.UNDERLINE:
-                                        // Draws a line at the baseline of the font
-                                        // TODO As some browsers display the line as more than 1px if the font-size is big,
-                                        // need to take that into account both in position and size
-                                        this.ctx.fillRect(
-                                            text.bounds.left,
-                                            Math.round(text.bounds.top + baseline),
-                                            text.bounds.width,
-                                            1
-                                        );
-
-                                        break;
-                                    case TEXT_DECORATION_LINE.OVERLINE:
-                                        this.ctx.fillRect(
-                                            text.bounds.left,
-                                            Math.round(text.bounds.top),
-                                            text.bounds.width,
-                                            1
-                                        );
-                                        break;
-                                    case TEXT_DECORATION_LINE.LINE_THROUGH:
-                                        // TODO try and find exact position for line-through
-                                        this.ctx.fillRect(
-                                            text.bounds.left,
-                                            Math.ceil(text.bounds.top + middle),
-                                            text.bounds.width,
-                                            1
-                                        );
-                                        break;
-                                }
-                            });
-                        }
-                        break;
-                    case PAINT_ORDER_LAYER.STROKE:
-                        if (styles.webkitTextStrokeWidth && text.text.trim().length) {
-                            this.ctx.strokeStyle = asString(styles.webkitTextStrokeColor);
-                            this.ctx.lineWidth = styles.webkitTextStrokeWidth;
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            this.ctx.lineJoin = !!(window as any).chrome ? 'miter' : 'round';
-                            this.ctx.strokeText(text.text, text.bounds.left, text.bounds.top + baseline);
-                        }
-                        this.ctx.strokeStyle = '';
-                        this.ctx.lineWidth = 0;
-                        this.ctx.lineJoin = 'miter';
-                        break;
-                }
-            });
+        text.textBounds.forEach((textBound) => {
+            this.renderTextBoundWithStyles(textBound, styles, baseline, middle);
         });
     }
 
@@ -296,8 +459,18 @@ export class CanvasRenderer extends Renderer {
         const container = paint.container;
         const curves = paint.curves;
         const styles = container.styles;
-        for (const child of container.textNodes) {
-            await this.renderTextNode(child, styles);
+        if (container.textNodes.length > 0) {
+            const useEllipsis =
+                (styles.textOverflow === TEXT_OVERFLOW.ELLIPSIS && styles.overflowX !== OVERFLOW.VISIBLE) ||
+                styles.webkitLineClamp > 0;
+
+            if (useEllipsis) {
+                await this.renderTextNodesWithEllipsis(container, styles);
+            } else {
+                for (const child of container.textNodes) {
+                    await this.renderTextNode(child, styles);
+                }
+            }
         }
 
         if (container instanceof ImageElementContainer) {

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>text-overflow ellipsis — html2canvas 验证</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: sans-serif; padding: 24px; background: #f5f5f5; }
+    h2   { margin: 32px 0 8px; font-size: 14px; color: #888; letter-spacing: 1px; text-transform: uppercase; }
+    .row { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 8px; }
+
+    /* ── 公共容器宽度 ── */
+    .box { width: 240px; background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 8px 12px; }
+
+    /* ── 单行省略 ── */
+    .single {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── 多行省略 ── */
+    .multi {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .line2 { -webkit-line-clamp: 2; }
+    .line3 { -webkit-line-clamp: 3; }
+
+    /* ── 截图区域 ── */
+    #target { background: #fff; padding: 20px; border-radius: 8px; border: 1px solid #ccc; }
+
+    /* ── 结果区域 ── */
+    #result { margin-top: 32px; }
+    #result canvas { border: 1px solid #aaa; border-radius: 4px; display: block; }
+    #btn {
+      margin-top: 20px;
+      padding: 10px 28px;
+      font-size: 15px;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+    }
+    #btn:hover { background: #1d4ed8; }
+    label { font-size: 13px; color: #555; display: block; margin-bottom: 3px; }
+  </style>
+</head>
+<body>
+
+<div id="target">
+
+  <h2>单行省略 — 默认字体</h2>
+  <div class="row">
+    <div>
+      <label>font-size: 14px</label>
+      <div class="box single" style="font-size:14px;">
+        这是一段很长的文本内容，用于测试单行省略号是否正常显示
+      </div>
+    </div>
+    <div>
+      <label>font-size: 18px, font-weight: bold</label>
+      <div class="box single" style="font-size:18px; font-weight:bold;">
+        Bold text — This is a longer sentence that should be truncated with ellipsis
+      </div>
+    </div>
+  </div>
+
+  <h2>单行省略 — 自定义字体 &amp; letter-spacing</h2>
+  <div class="row">
+    <div>
+      <label>font-family: Georgia, letter-spacing: 2px</label>
+      <div class="box single" style="font-family:Georgia,serif; font-size:14px; letter-spacing:2px;">
+        Wide spaced text that overflows the container boundary
+      </div>
+    </div>
+    <div>
+      <label>font-family: monospace, font-size: 13px</label>
+      <div class="box single" style="font-family:monospace; font-size:13px;">
+        monospace_font_with_a_very_long_identifier_name_here
+      </div>
+    </div>
+  </div>
+
+  <h2>单行省略 — 英文 / 数字 / 混合</h2>
+  <div class="row">
+    <div>
+      <label>纯英文</label>
+      <div class="box single" style="font-size:14px;">
+        The quick brown fox jumps over the lazy dog and keeps running
+      </div>
+    </div>
+    <div>
+      <label>中英混合</label>
+      <div class="box single" style="font-size:14px;">
+        2024年前端技术趋势：React Server Components、Signals、WebAssembly
+      </div>
+    </div>
+  </div>
+
+  <h2>多行省略 — 2 行</h2>
+  <div class="row">
+    <div>
+      <label>默认字体 font-size: 14px</label>
+      <div class="box multi line2" style="font-size:14px; line-height:1.6;">
+        这是一段需要进行多行省略展示的长文本。多行省略通常用于卡片式布局中，
+        限制描述文字的展示行数，保持页面整洁美观。
+      </div>
+    </div>
+    <div>
+      <label>font-size: 15px, font-weight: 600</label>
+      <div class="box multi line2" style="font-size:15px; font-weight:600; line-height:1.5;">
+        Semi-bold multi-line text that gets clamped at two lines and shows an ellipsis at the end of the second line.
+      </div>
+    </div>
+  </div>
+
+  <h2>多行省略 — 3 行</h2>
+  <div class="row">
+    <div>
+      <label>中文三行</label>
+      <div class="box multi line3" style="font-size:14px; line-height:1.7;">
+        TypeScript 是 JavaScript 的超集，它在 JavaScript 的基础上添加了可选的静态类型和
+        基于类的面向对象编程。TypeScript 由微软开发并维护，它被设计用于开发大型应用，
+        并且转译成 JavaScript 以便在任何浏览器、任何操作系统上运行。
+      </div>
+    </div>
+    <div>
+      <label>英文三行 + letter-spacing: 0.5px</label>
+      <div class="box multi line3" style="font-size:14px; line-height:1.6; letter-spacing:0.5px; font-family:Georgia,serif;">
+        html2canvas takes "screenshots" of webpages or parts of it, directly on the users browser.
+        The screenshot is based on the DOM and as such may not be a 100% accurate real-world
+        screenshot, but rather a representation of the page based on the information available.
+      </div>
+    </div>
+  </div>
+
+  <h2>文本完全适应容器（不触发省略）</h2>
+  <div class="row">
+    <div>
+      <label>单行，文字较短（不截断）</label>
+      <div class="box single" style="font-size:14px;">
+        短文本，不触发省略
+      </div>
+    </div>
+    <div>
+      <label>多行 clamp:3，文字只有两行（不截断）</label>
+      <div class="box multi line3" style="font-size:14px; line-height:1.6;">
+        仅有两行内容，不应显示省略号。
+        这里是第二行。
+      </div>
+    </div>
+  </div>
+
+</div><!-- #target -->
+
+<button id="btn">截图并对比</button>
+
+<div id="result"></div>
+
+<script src="../dist/html2canvas.js"></script>
+<script>
+  document.getElementById('btn').addEventListener('click', async () => {
+    const btn = document.getElementById('btn');
+    btn.disabled = true;
+    btn.textContent = '截图中…';
+
+    try {
+      const h2c = window['@haifei/html2canvas'] || window.html2canvas;
+      const canvas = await h2c(document.getElementById('target'), {
+        scale: window.devicePixelRatio || 1,
+        useCORS: true,
+        logging: false
+      });
+
+      const result = document.getElementById('result');
+      result.innerHTML = '<h2 style="margin:16px 0 8px;">html2canvas 截图结果</h2>';
+
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'overflow:auto; max-width:100%;';
+      canvas.style.maxWidth = '100%';
+      wrapper.appendChild(canvas);
+      result.appendChild(wrapper);
+
+      const note = document.createElement('p');
+      note.style.cssText = 'font-size:12px; color:#888; margin-top:8px;';
+      note.textContent = '↑ 以上截图应与原始页面一致：省略号位置、字体粗细、letter-spacing 均应正确渲染。';
+      result.appendChild(note);
+    } catch (e) {
+      console.error(e);
+      alert('截图失败：' + (e && e.message ? e.message : String(e)));
+    }
+
+    btn.disabled = false;
+    btn.textContent = '截图并对比';
+  });
+</script>
+</body>
+</html>

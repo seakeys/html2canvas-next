@@ -2,6 +2,7 @@ interface CSSStyleDeclaration {
     textDecorationColor: string;
     textDecorationLine: string;
     overflowWrap: string;
+    webkitLineClamp: string;
 }
 
 interface DocumentType extends Node, ChildNode {

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Underlined link - html2canvas example</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 24px;
+            background: #f4f6f8;
+            color: #202124;
+            font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
+        h1 {
+            margin: 0 0 16px;
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        #source {
+            width: 680px;
+            max-width: 100%;
+            padding: 24px;
+            background: #fff;
+            border: 1px solid #d9dee3;
+            border-radius: 6px;
+        }
+
+        .case {
+            margin: 18px 0;
+            line-height: 1.7;
+            font-size: 16px;
+        }
+
+        .label {
+            display: block;
+            margin-bottom: 4px;
+            color: #666;
+            font-size: 12px;
+        }
+
+        a {
+            color: #0b57d0;
+            text-decoration-line: underline;
+        }
+
+        .default-link {
+            text-decoration-thickness: auto;
+        }
+
+        .custom-link {
+            color: #146c43;
+            text-decoration-color: #d63384;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 4px;
+        }
+
+        .wrapped {
+            display: inline;
+            background: #fff4ce;
+            text-decoration-color: #b45309;
+            text-decoration-thickness: 1.5px;
+            text-underline-offset: 3px;
+        }
+
+        .large-link {
+            color: #6f42c1;
+            font-size: 24px;
+            font-weight: 700;
+            text-decoration-thickness: 3px;
+            text-underline-offset: 5px;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 10px 24px;
+            background: #1f2937;
+            color: #fff;
+            border: 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        #output {
+            margin-top: 24px;
+        }
+
+        #output canvas {
+            display: block;
+            max-width: 100%;
+            border: 1px solid #9aa0a6;
+            background: #fff;
+        }
+    </style>
+</head>
+<body>
+<div id="source">
+    <h1>Underlined link rendering</h1>
+
+    <p class="case">
+        <span class="label">Default underline</span>
+        This paragraph contains a
+        <a class="default-link" href="https://html2canvas.hertzen.com/">standard underlined hyperlink</a>
+        inside regular text.
+    </p>
+
+    <p class="case">
+        <span class="label">Custom underline color, thickness, and offset</span>
+        这是一段中文文本，里面包含一个
+        <a class="custom-link" href="#">带自定义下划线样式的超链接</a>
+        ，用于验证文字基线附近的下划线渲染。
+    </p>
+
+    <p class="case" style="width: 360px;">
+        <span class="label">Wrapped inline link</span>
+        A long inline link should keep the underline on each visual line:
+        <a class="wrapped" href="#">this underlined hyperlink is intentionally long enough to wrap across multiple lines</a>.
+    </p>
+
+    <p class="case">
+        <span class="label">Large bold link</span>
+        <a class="large-link" href="#">Large underlined hyperlink</a>
+    </p>
+</div>
+
+<button id="btn">Run html2canvas</button>
+<div id="output"></div>
+
+<script src="../dist/html2canvas.js"></script>
+<script>
+    document.getElementById('btn').addEventListener('click', function () {
+        var h2c = window['@haifei/html2canvas'] || window.html2canvas;
+        h2c(document.getElementById('source'), {
+            scale: window.devicePixelRatio || 1,
+            logging: false
+        }).then(function (canvas) {
+            var output = document.getElementById('output');
+            output.innerHTML = '';
+            output.appendChild(canvas);
+        });
+    });
+</script>
+</body>
+</html>

@@ -212,25 +212,29 @@ export class CanvasRenderer extends Renderer {
 
                     if (styles.textDecorationLine.length) {
                         this.ctx.fillStyle = asString(styles.textDecorationColor || styles.color);
+                        const fontSize = getAbsoluteValue(styles.fontSize, 0);
+                        const textDecorationThickness = getAbsoluteValue(styles.textDecorationThickness, fontSize);
                         styles.textDecorationLine.forEach((textDecorationLine) => {
                             switch (textDecorationLine) {
-                                case TEXT_DECORATION_LINE.UNDERLINE:
+                                case TEXT_DECORATION_LINE.UNDERLINE: {
                                     // Draws a line at the baseline of the font
                                     // TODO As some browsers display the line as more than 1px if the font-size is big,
                                     // need to take that into account both in position and size
+                                    const underlineOffset = getAbsoluteValue(styles.textUnderlineOffset, fontSize);
                                     this.ctx.fillRect(
                                         textBound.bounds.left,
-                                        Math.round(textBound.bounds.top + baseline),
+                                        Math.round(textBound.bounds.top + baseline + underlineOffset),
                                         textBound.bounds.width,
-                                        1
+                                        textDecorationThickness
                                     );
                                     break;
+                                }
                                 case TEXT_DECORATION_LINE.OVERLINE:
                                     this.ctx.fillRect(
                                         textBound.bounds.left,
                                         Math.round(textBound.bounds.top),
                                         textBound.bounds.width,
-                                        1
+                                        textDecorationThickness
                                     );
                                     break;
                                 case TEXT_DECORATION_LINE.LINE_THROUGH:
@@ -239,7 +243,7 @@ export class CanvasRenderer extends Renderer {
                                         textBound.bounds.left,
                                         Math.ceil(textBound.bounds.top + middle),
                                         textBound.bounds.width,
-                                        1
+                                        textDecorationThickness
                                     );
                                     break;
                             }

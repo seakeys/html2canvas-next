@@ -1,6 +1,8 @@
 interface CSSStyleDeclaration {
     textDecorationColor: string;
     textDecorationLine: string;
+    textDecorationThickness: string;
+    textUnderlineOffset: string;
     overflowWrap: string;
     webkitLineClamp: string;
 }

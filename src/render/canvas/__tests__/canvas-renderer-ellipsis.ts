@@ -85,11 +85,13 @@ const makeStyles = (overrides: Record<string, unknown> = {}): CSSParsedDeclarati
 const makeContainer = (
     textNodeGroups: TextBounds[][],
     containerBounds: Bounds,
-    styles: CSSParsedDeclaration
+    styles: CSSParsedDeclaration,
+    textOverflowXOverflows = false
 ): ElementContainer =>
     ({
         bounds: containerBounds,
         styles,
+        textOverflowXOverflows,
         textNodes: textNodeGroups.map((textBounds) => ({textBounds}))
     } as unknown as ElementContainer);
 
@@ -292,6 +294,56 @@ describe('CanvasRenderer — single-line text-overflow: ellipsis', () => {
 
         expect(drawnTexts).toContain('Hi');
         expect(drawnTexts).not.toContain('\u2026');
+    });
+
+    it('adds ellipsis when Safari reports only visible range bounds but the element scrolls', async () => {
+        const styles = makeStyles();
+        const {renderer, drawnTexts} = makeRenderer(14, 14);
+
+        const container = makeContainer(
+            [[
+                tb('这', 0, 8, 14, 20),
+                tb('是', 14, 8, 14, 20),
+                tb('一段', 28, 8, 28, 20),
+                tb('很', 56, 8, 14, 20),
+                tb('长', 70, 8, 14, 20),
+                tb('的', 84, 8, 14, 20),
+                tb('文本', 98, 8, 28, 20),
+                tb('内容', 126, 8, 28, 20),
+                tb('，', 154, 8, 14, 20),
+                tb('用于', 168, 8, 28, 20)
+            ]],
+            new Bounds(0, 0, 214, 22),
+            styles,
+            true
+        );
+
+        await callEllipsis(renderer, container, styles);
+
+        expect(drawnTexts).toContain('用于');
+        expect(drawnTexts).toContain('\u2026');
+    });
+
+    it('truncates a Safari-clipped final visible bound before adding ellipsis', async () => {
+        const styles = makeStyles();
+        const {renderer, drawnTexts} = makeRenderer(10, 10);
+
+        const container = makeContainer(
+            [[
+                tb('AB', 0, 8, 20, 14),
+                tb('CDE', 20, 8, 20, 14)
+            ]],
+            new Bounds(0, 0, 100, 22),
+            styles,
+            true
+        );
+
+        await callEllipsis(renderer, container, styles);
+
+        expect(drawnTexts).toContain('AB');
+        expect(drawnTexts).toContain('CD');
+        expect(drawnTexts).not.toContain('CDE');
+        expect(drawnTexts).toContain('\u2026');
     });
 
     it('renders nothing when allBounds is empty after filtering', async () => {

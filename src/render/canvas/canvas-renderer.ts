@@ -336,6 +336,7 @@ export class CanvasRenderer extends Renderer {
 
         // Determine which line (if any) needs an ellipsis appended
         let ellipsisLineIndex = -1;
+        let forcedEllipsisFromScrollOverflow = false;
 
         if (hasLineClamp) {
             // Multi-line clamp: always place ellipsis at the end of line clampCount
@@ -344,14 +345,15 @@ export class CanvasRenderer extends Renderer {
             // Single-line (or last-line) overflow: find the first line whose content
             // exceeds the container's right edge
             for (let i = 0; i < lines.length; i++) {
-                const lineRight = lines[i].reduce(
-                    (maxR, b) => Math.max(maxR, b.bounds.left + b.bounds.width),
-                    0
-                );
+                const lineRight = lines[i].reduce((maxR, b) => Math.max(maxR, b.bounds.left + b.bounds.width), 0);
                 if (lineRight > contentRight + 0.5) {
                     ellipsisLineIndex = i;
                     break;
                 }
+            }
+            if (ellipsisLineIndex === -1 && container.textOverflowXOverflows && lines.length > 0) {
+                ellipsisLineIndex = 0;
+                forcedEllipsisFromScrollOverflow = true;
             }
         }
 
@@ -382,15 +384,18 @@ export class CanvasRenderer extends Renderer {
                 if (truncated) break;
 
                 const domBoundRight = bound.bounds.left + bound.bounds.width;
+                const canvasBoundWidth = this.measureTextWidth(bound.text, styles.letterSpacing);
+                const hasSafariClippedBound =
+                    forcedEllipsisFromScrollOverflow && canvasBoundWidth > bound.bounds.width + 0.5;
 
-                if (domBoundRight <= availableRight) {
+                if (domBoundRight <= availableRight && !hasSafariClippedBound) {
                     // This entire bound fits — render it normally
                     this.renderTextBoundWithStyles(bound, styles, baseline, middle);
                     ellipsisX = domBoundRight;
                 } else {
                     // This bound needs to be cut short; canvas measurements used only here
                     // to count how many characters fill the remaining pixel budget.
-                    const remaining = availableRight - bound.bounds.left;
+                    const remaining = Math.min(availableRight - bound.bounds.left, bound.bounds.width);
                     if (remaining > 0) {
                         const truncatedText = this.truncateTextToWidth(bound.text, remaining, styles.letterSpacing);
                         if (truncatedText.length > 0) {
@@ -978,11 +983,29 @@ export class CanvasRenderer extends Renderer {
                 for (const border of borders) {
                     const skipLeft = side === 3 && i !== 0;
                     const skipRight = side === 1 && i !== lastIdx;
-                    if (!skipLeft && !skipRight && border.style !== BORDER_STYLE.NONE && !isTransparent(border.color) && border.width > 0) {
+                    if (
+                        !skipLeft &&
+                        !skipRight &&
+                        border.style !== BORDER_STYLE.NONE &&
+                        !isTransparent(border.color) &&
+                        border.width > 0
+                    ) {
                         if (border.style === BORDER_STYLE.DASHED) {
-                            await this.renderDashedDottedBorder(border.color, border.width, side, rectCurves, BORDER_STYLE.DASHED);
+                            await this.renderDashedDottedBorder(
+                                border.color,
+                                border.width,
+                                side,
+                                rectCurves,
+                                BORDER_STYLE.DASHED
+                            );
                         } else if (border.style === BORDER_STYLE.DOTTED) {
-                            await this.renderDashedDottedBorder(border.color, border.width, side, rectCurves, BORDER_STYLE.DOTTED);
+                            await this.renderDashedDottedBorder(
+                                border.color,
+                                border.width,
+                                side,
+                                rectCurves,
+                                BORDER_STYLE.DOTTED
+                            );
                         } else if (border.style === BORDER_STYLE.DOUBLE) {
                             await this.renderDoubleBorder(border.color, border.width, side, rectCurves);
                         } else {

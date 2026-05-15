@@ -20,6 +20,7 @@ export class ElementContainer {
     readonly elements: ElementContainer[] = [];
     bounds: Bounds;
     flags = 0;
+    textOverflowXOverflows = false;
     // For pure inline elements that wrap across multiple lines, stores each line box
     // rect individually so that background is painted per line rather than as a single
     // bounding rectangle (which would cover empty space between lines).
@@ -44,6 +45,9 @@ export class ElementContainer {
         }
 
         this.bounds = parseBounds(this.context, element);
+        if (isHTMLElementNode(element)) {
+            this.textOverflowXOverflows = element.scrollWidth > element.clientWidth;
+        }
 
         // For pure inline elements (display: inline), getBoundingClientRect() returns the
         // overall bounding box which spans empty space between line breaks.  getClientRects()
